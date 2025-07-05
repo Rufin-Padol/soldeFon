@@ -1,0 +1,56 @@
+
+on:
+  push:
+    branches:
+      - main  # adapte si besoin
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --no-audit --prefer-offline
+
+      - name: Build Angular app
+        run: npm run build -- --configuration=production
+        env:
+          NODE_OPTIONS: '--max_old_space_size=4096'
+
+      - name: Verify build artifacts
+        run: |
+          ls -la ./dist/
+          [ -f ./dist/index.html ] || exit 1
+
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.8.0
+        with:
+          ssh-private-key: ${{ secrets.VPS_SSH_KEY }}
+
+      - name: Deploy to VPS
+        run: |
+          ssh -o StrictHostKeyChecking=no root@${{ secrets.VPS_IP }} "
+            mkdir -p /var/www/angular-app && \
+            rm -rf /var/www/angular-app/* && \
+            chown -R www-data:www-data /var/www/angular-app
+          "
+          rsync -avz --no-perms --no-owner --no-group --delete \
+            -e 'ssh -o StrictHostKeyChecking=no' \
+            ./dist/ root@${{ secrets.VPS_IP }}:/var/www/angular-app/
+          ssh -o StrictHostKeyChecking=no root@${{ secrets.VPS_IP }} "
+            sudo systemctl reload nginx
+          "
+
+      - name: Verify deployment
+        run: |
+          curl -sSf http://${{ secrets.VPS_IP }} || (echo "Deployment failed" && exit 1)
