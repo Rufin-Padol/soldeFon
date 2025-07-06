@@ -7,7 +7,7 @@ import { AuthServiceTsService } from '../../../Services/auth.service.ts.service'
 
 @Component({
   selector: 'app-code-recu',
-imports: [ReactiveFormsModule,CommonModule,RouterLink],
+imports: [ReactiveFormsModule,CommonModule],
   templateUrl: './code-recu.component.html',
   styleUrl: './code-recu.component.css'
 })

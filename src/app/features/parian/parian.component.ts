@@ -5,7 +5,7 @@ import { RouterLink } from '@angular/router';
 
 @Component({
   selector: 'app-parian',
-  imports: [CommonModule, AsideComponent,RouterLink],
+  imports: [CommonModule, RouterLink],
   templateUrl: './parian.component.html',
   styleUrl: './parian.component.css'
 })
