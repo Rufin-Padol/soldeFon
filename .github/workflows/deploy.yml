@@ -1,98 +1,44 @@
-name: Deploy Angular App to VPS
+name: Deploy Angular to Contabo
 
 on:
   push:
-    branches:
-      - main  # Changez cette ligne si vous utilisez une autre branche
+    branches: [main]
 
 jobs:
-  build-and-deploy:
+  deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 15  # Augmentez ce timeout si votre build est long
+    timeout-minutes: 20
 
     steps:
-      # Étape 1: Récupération du code
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0  # Important pour avoir les infos de version
+      - uses: actions/checkout@v4
 
-      # Étape 2: Configuration de Node.js
-      - name: Setup Node.js
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'  # Version de Node.js
-          cache: 'npm'        # Activation du cache npm
+          node-version: '20'
 
-      # Étape 3: Installation des dépendances
-      - name: Install dependencies
+      - run: npm ci && npm run build -- --configuration=production
+
+      - name: Verify build
         run: |
-          npm ci --no-audit --prefer-offline
-          npm install -g @angular/cli  # Installation d'Angular CLI en global
+          [ -f dist/solidarite-plus/browser/index.html ] || exit 1
 
-      # Étape 4: Build de l'application Angular
-      - name: Build Angular app
-        run: npm run build -- --configuration=production
-        env:
-          NODE_OPTIONS: '--max_old_space_size=4096'  # Augmente la mémoire pour les gros projets
-
-      # Étape 5: Identification du dossier de build
-      - name: Get Angular dist subfolder name
-        id: get-dist-folder
-        run: |
-          DIST_NAME=$(ls -1 dist | grep -E '^[^.]' | head -n 1)  # Meilleure détection du dossier
-          echo "DIST_NAME=${DIST_NAME}" >> $GITHUB_OUTPUT
-          echo "Dossier de build détecté : ${DIST_NAME}"
-
-      # Étape 6: Vérification des fichiers générés
-      - name: Verify build artifacts
-        run: |
-          echo "Contenu du dossier de build :"
-          ls -la ./dist/${{ steps.get-dist-folder.outputs.DIST_NAME }}/
-          
-          # Vérification des fichiers essentiels
-          [ -f ./dist/${{ steps.get-dist-folder.outputs.DIST_NAME }}/index.html ] || exit 1
-          [ -f ./dist/${{ steps.get-dist-folder.outputs.DIST_NAME }}/main.js ] || exit 1
-
-      # Étape 7: Configuration SSH
-      - name: Setup SSH
-        uses: webfactory/ssh-agent@v0.8.0
+      - uses: webfactory/ssh-agent@v0.8.0
         with:
           ssh-private-key: ${{ secrets.VPS_SSH_KEY }}
 
-      # Étape 8: Déploiement sur le VPS
-      - name: Deploy to VPS
+      - name: Deploy files
         run: |
-          # Configuration du dossier sur le serveur
-          ssh -o StrictHostKeyChecking=no root@${{ secrets.VPS_IP }} "
-            mkdir -p /var/www/angular-app || true
-            chown -R www-data:www-data /var/www/angular-app
-            rm -rf /var/www/angular-app/* || true
-          "
-          
-          # Synchronisation des fichiers
-          rsync -avz --no-perms --no-owner --no-group --delete \
+          rsync -avz --delete \
             -e 'ssh -o StrictHostKeyChecking=no' \
-            ./dist/${{ steps.get-dist-folder.outputs.DIST_NAME }}/ \
+            ./dist/solidarite-plus/browser/ \
             root@${{ secrets.VPS_IP }}:/var/www/angular-app/
-          
-          # Redémarrage de Nginx
-          ssh -o StrictHostKeyChecking=no root@${{ secrets.VPS_IP }} "
-            sudo systemctl restart nginx || sudo systemctl reload nginx
+
+          ssh root@${{ secrets.VPS_IP }} "
+            chown -R www-data:www-data /var/www/angular-app
+            systemctl reload nginx
           "
 
-      # Étape 9: Vérification du déploiement
-      - name: Verify deployment
+      - name: Verify
         run: |
-          # Attendre que Nginx soit prêt
-          sleep 5
-          
-          # Vérification avec curl
-          HTTP_STATUS=$(curl -o /dev/null -s -w "%{http_code}\n" http://${{ secrets.VPS_IP }})
-          
-          if [ "$HTTP_STATUS" -ne 200 ]; then
-            echo "ERREUR: Le déploiement a échoué (Status HTTP: $HTTP_STATUS)"
-            exit 1
-          else
-            echo "SUCCÈS: L'application a été déployée correctement"
-          fi
+          curl -sf http://${{ secrets.VPS_IP }} || exit 1
